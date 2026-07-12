@@ -25,10 +25,10 @@ export default async function handler(req, res) {
           `Recevez une notification dès qu'un wallet trade.\n\n` +
           `<b>Commandes :</b>\n` +
           `/add <code>0x...</code> [nom] — Ajouter un wallet\n` +
-          `/remove <code>0x...</code> — Retirer un wallet\n` +
+          `/remove <code>0x...</code> ou nom — Retirer un wallet\n` +
           `/list — Voir vos wallets\n` +
-          `/mute <code>0x...</code> — Couper les notifs\n` +
-          `/unmute <code>0x...</code> — Réactiver les notifs`
+          `/mute <code>0x...</code> ou nom — Couper les notifs\n` +
+          `/unmute <code>0x...</code> ou nom — Réactiver les notifs`
       );
     } else if (cmd.startsWith('/add')) {
       await handleAdd(chatId, text);
@@ -73,10 +73,36 @@ async function handleAdd(chatId, text) {
   );
 }
 
+// Résout une adresse complète, un nom de wallet ou un préfixe d'adresse
+// vers l'adresse stockée. Retourne null si aucun wallet ne correspond.
+async function resolveWallet(chatId, query) {
+  if (!query) return null;
+  if (/^0x[a-fA-F0-9]{40}$/.test(query)) return query.toLowerCase();
+
+  const wallets = await getTrackedWallets(chatId);
+  const q = query.toLowerCase();
+
+  for (const [addr, raw] of Object.entries(wallets)) {
+    const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (data.label && data.label.toLowerCase() === q) return addr;
+  }
+
+  if (q.startsWith('0x') && q.length >= 6) {
+    const matches = Object.keys(wallets).filter((a) => a.startsWith(q));
+    if (matches.length === 1) return matches[0];
+  }
+
+  return null;
+}
+
 async function handleRemove(chatId, text) {
-  const address = text.split(/\s+/)[1];
-  if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
-    await sendMessage(chatId, '❌ Format : <code>/remove 0x...</code>');
+  const query = text.split(/\s+/).slice(1).join(' ');
+  const address = await resolveWallet(chatId, query);
+  if (!address) {
+    await sendMessage(
+      chatId,
+      '❌ Wallet non trouvé.\nFormat : <code>/remove 0x...</code> ou <code>/remove NomDuWallet</code>'
+    );
     return;
   }
 
@@ -100,18 +126,23 @@ async function handleList(chatId) {
   for (const [addr, raw] of entries) {
     const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
     const status = data.active ? '🟢 ON' : '🔴 OFF';
-    const name = data.label ? ` — ${data.label}` : '';
-    msg += `${status} <code>${addr.slice(0, 6)}...${addr.slice(-4)}</code>${name}\n`;
+    const name = data.label ? ` — <b>${data.label}</b>` : '';
+    msg += `${status}${name}\n<code>${addr}</code>\n\n`;
   }
+  msg += '<i>Astuce : /mute, /unmute et /remove acceptent le nom du wallet.</i>';
 
   await sendMessage(chatId, msg);
 }
 
 async function handleToggle(chatId, text, active) {
-  const address = text.split(/\s+/)[1];
-  if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
+  const query = text.split(/\s+/).slice(1).join(' ');
+  const address = await resolveWallet(chatId, query);
+  if (!address) {
     const cmd = active ? '/unmute' : '/mute';
-    await sendMessage(chatId, `❌ Format : <code>${cmd} 0x...</code>`);
+    await sendMessage(
+      chatId,
+      `❌ Wallet non trouvé.\nFormat : <code>${cmd} 0x...</code> ou <code>${cmd} NomDuWallet</code>`
+    );
     return;
   }
 
