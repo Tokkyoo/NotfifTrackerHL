@@ -45,7 +45,7 @@ export default async function handler(req, res) {
           : [];
 
         if (newFills.length > 0) {
-          await sendTradeNotification(chatId, address, newFills);
+          await sendTradeNotification(chatId, address, newFills, data.label);
           notified += newFills.length;
         }
 
